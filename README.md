@@ -29,13 +29,13 @@ Um gráfico é gerado ao executar main.py
 
 <img width="2656" height="1340" alt="picking_route_2d" src="https://github.com/user-attachments/assets/997c3af3-e4be-4895-b031-144ef0ce92ad" />
 
-Nesse caso, o trabalhador se encontrava no corredor 'B' e recebeu pedidos nos corredores 'B' e 'C' apenas. A solução foi um caminho por 'B' e depois outro por 'C' e terminando no corredor 'C'.
+Nesse caso, o trabalhador se encontrava no corredor 'B' e recebeu pedidos nos corredores 'B' e 'C' apenas. A solução foi um caminho por 'B' e, em seguida, por 'C', terminando neste último."
 
 **Segundo - Layout do armazém:** Vista superior dos corredores do armazém. Note que a mudança entre corredores occore apenas pelo corredor de saída ao final e toda coleta tem que terminar em um dos pontos frontais.
 
 <img width="2656" height="1340" alt="picking_route_2d" src="https://github.com/user-attachments/assets/479b7669-1eeb-4133-a5e8-e59f764d7ea6" />
 
-Já neste caso, o trabalhador se encontrava no corredor 'A' e recebeu pedidos nos 3 corredores, a solução ótima foi ir do corredor 'A' até 'C', em 'C' fazer um ciclo hamiltoniano voltando para 'B' e terminando no inicio de 'B'
+Já neste caso, o trabalhador se encontrava no corredor 'A' e recebeu pedidos nos três corredores. A solução ótima foi ir do corredor 'A' até 'C', em 'C' fazer um ciclo hamiltoniano voltando para 'B' e terminar o trajeto no inicio de 'B'.
 
 ## Como usar
 Abra a função main e escolha os dois parâmetros: num_pedidos(argumento dentro da função pedidos) e corr_inicial escolha entre 'A', 'B' ou 'C'.
