@@ -33,6 +33,8 @@ def HCP(dist_matrix, n):
         GRB.MINIMIZE
     )
 
+    model.setParam('TimeLimit', 60)
+    
     model.optimize()
 
     if model.status == GRB.OPTIMAL:
@@ -75,7 +77,9 @@ def HPP(dist_matrix, n):
         GRB.MINIMIZE
     )
 
+    model.setParam('TimeLimit', 60)
     model.optimize()
+
 
     if model.status == GRB.OPTIMAL:
         print(f"Custo Total Ótimo (HPP): {model.objVal}")
@@ -129,246 +133,356 @@ def exibir_solucao(x_sol, id_to_elem, n, obj_val, titulo="SOLUÇÃO", tipo="HPP"
         print("Rota:", " -> ".join(caminho))
 
 
+
+
+
+def extrair_caminho(x_sol, id_to_elem, n, tipo):
+    if x_sol is None: return []
+    caminho_ids = []
+    if tipo == "HCP":
+        curr = 0
+        caminho_ids = [0]
+        visitados = {0}
+        while len(visitados) < n:
+            for j in range(n):
+                if j not in visitados and x_sol[curr, j] > 0.5:
+                    caminho_ids.append(j)
+                    visitados.add(j)
+                    curr = j
+                    break
+        caminho_ids.append(0) 
+    else: # HPP
+        curr = 0
+        caminho_ids = [0]
+        visitados = {0}
+        while curr != n-1:
+            encontrou = False
+            for j in range(n):
+                if j not in visitados and x_sol[curr, j] > 0.5:
+                    caminho_ids.append(j)
+                    visitados.add(j)
+                    curr = j
+                    encontrou = True
+                    break
+            if not encontrou: break
+    return [id_to_elem[i] for i in caminho_ids]
+
+
 def all_tour(G, pedidos, corr_inicial, conversao):
     """
     Resolve o tour completo baseado nas zonas dos pedidos (A, B, C).
     """
     all_corr = sorted(list(set(item[0] for item in pedidos)))
-    print(all_corr)
+
+    def dist_corredor(c1, c2):
+        # Distâncias fornecidas: d(A,B)=1.6, d(B,C)=1.6, d(A,C)=3.2
+        # Posições relativas: A=0, B=1.6, C=3.2
+        pos = {'A': 0, 'B': 1.6, 'C': 3.2}
+        return abs(pos[c1] - pos[c2])
+    
+    def avaliar_rota(sequencia, label_map=None):
+        total = 0
+        passos = []
+        full_path = []
+        prev_label = corr_inicial 
+        for nodes, titulo, tipo in sequencia:
+            G1 = G.subgraph(nodes)
+            matrix, id_map, n = conversao(G1, node_list=nodes)
+            if tipo == "HCP":
+                res = HCP(matrix, n)
+            else:
+                res = HPP(matrix, n)
+            if res[1] is None: return float('inf'), [], []
+            
+            caminho = extrair_caminho(res[0], id_map, n, tipo)
+            
+            # Inferir label
+            label = "Unknown"
+            if "Corredor A" in titulo or "Zona A" in titulo: label = "A"
+            elif "Corredor B" in titulo or "Zona B" in titulo: label = "B"
+            elif "Corredor C" in titulo or "Zona C" in titulo: label = "C"
+            if label_map and titulo in label_map: label = label_map[titulo]
+
+            if prev_label is not None and label != prev_label and label != "Unknown" and prev_label != "Unknown":
+                total += dist_corredor(prev_label, label)
+
+            total += res[1]
+            passos.append((res[0], id_map, n, res[1], titulo, tipo, label))
+            for node in caminho:
+                full_path.append((label, node))
+            
+            prev_label = label
+                
+        return total, passos, full_path
+
+    def exibir_vencedor(passos):
+        total_acumulado = 0
+        prev_label = corr_inicial
+        for p in passos:
+            res_sol, id_map, n, obj, titulo, tipo, label = p
+            
+            if prev_label is not None and label != prev_label and label != "Unknown" and prev_label != "Unknown":
+                d_trans = dist_corredor(prev_label, label)
+                print(f"\n[Transição de Corredor: {prev_label} -> {label} | Distância: {d_trans:.2f}]")
+                total_acumulado += d_trans
+
+            exibir_solucao(res_sol, id_map, n, obj, titulo=titulo, tipo=tipo)
+            total_acumulado += obj
+            prev_label = label
+            
+        print(f"\n>>> CUSTO TOTAL CONSOLIDADO: {total_acumulado:.2f} <<<")
+
+
     if all_corr == ['A']:
         if corr_inicial == 'A':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos] 
+            X_sample = [('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'A']
             G1 = G.subgraph(X_sample)
             G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
             res_hcp = HCP(G1_matrix, n)
             exibir_solucao(res_hcp[0], id_to_elem, n, res_hcp[1], titulo="Picking Zona A", tipo="HCP")
+            return [("A", node) for node in extrair_caminho(res_hcp[0], id_to_elem, n, "HCP")]
 
-        elif corr_inicial == 'B':
-            # Vai de I para F, depois atende Zona A
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona A")
-
-        elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona A")
+        elif corr_inicial in ['B', 'C']:
+            label_init = "B" if corr_inicial == 'B' else "C"
+            seq = [
+                ([('I', 0, 1), ('F', 37, 1)], f"Deslocamento I -> F (Corredor {label_init})", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 1)], "Picking Zona A", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {f"Deslocamento I -> F (Corredor {label_init})": label_init, "Picking Zona A": "A"})
+            exibir_vencedor(p)
+            return path
 
     elif all_corr == ['B']:
-        if corr_inicial == 'A':
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
+        if corr_inicial == 'B':
+            X_sample = [('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'B']
             G1 = G.subgraph(X_sample)
             G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona B")
-
-        elif corr_inicial == 'B':
-            X_sample1 = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'B']
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
             res_hcp = HCP(G1_matrix, n)
             exibir_solucao(res_hcp[0], id_to_elem, n, res_hcp[1], titulo="Picking Zona B", tipo="HCP")
+            return [("B", node) for node in extrair_caminho(res_hcp[0], id_to_elem, n, "HCP")]
 
-        elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona B")
+        elif corr_inicial in ['A', 'C']:
+            label_init = corr_inicial
+            seq = [
+                ([('I', 0, 1), ('F', 37, 1)], f"Deslocamento I -> F (Corredor {label_init})", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 1)], "Picking Zona B", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {f"Deslocamento I -> F (Corredor {label_init})": label_init, "Picking Zona B": "B"})
+            exibir_vencedor(p)
+            return path
 
     elif all_corr == ['C']:
-        if corr_inicial == 'A':
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona C")
-
-        elif corr_inicial == 'B':
-            X_sample = [('I', 0, 0)] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Deslocamento I -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Picking Zona C")
-
-        elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'C']
+        if corr_inicial == 'C':
+            X_sample = [('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'C']
             G1 = G.subgraph(X_sample)
             G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
             res_hcp = HCP(G1_matrix, n)
             exibir_solucao(res_hcp[0], id_to_elem, n, res_hcp[1], titulo="Picking Zona C", tipo="HCP")
+            return [("C", node) for node in extrair_caminho(res_hcp[0], id_to_elem, n, "HCP")]
+
+        elif corr_inicial in ['A', 'B']:
+            label_init = corr_inicial
+            seq = [
+                ([('I', 0, 1), ('F', 37, 1)], f"Deslocamento I -> F (Corredor {label_init})", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 1)], "Picking Zona C", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {f"Deslocamento I -> F (Corredor {label_init})": label_init, "Picking Zona C": "C"})
+            exibir_vencedor(p)
+            return path
 
     elif all_corr == ['A', 'B']:
         if corr_inicial == 'A':
             # A -> B
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Atendimento Zona A (seguindo para B)")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Atendimento Zona B (retornando I)")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('F', 37, 1)], "Atendimento Zona A (seguindo para B)", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 1)], "Atendimento Zona B (retornando I)", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Atendimento Zona A (seguindo para B)": "A", "Atendimento Zona B (retornando I)": "B"})
+            exibir_vencedor(p)
+            return path
 
         elif corr_inicial == 'B':
             # B -> A
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Atendimento Zona B (seguindo para A)")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('F', 37, 1)], "Atendimento Zona B (seguindo para A)", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 1)], "Atendimento Zona A (retornando I)", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Atendimento Zona B (seguindo para A)": "B", "Atendimento Zona A (retornando I)": "A"})
+            exibir_vencedor(p)
+            return path
 
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Atendimento Zona A (retornando I)")
+        elif corr_inicial == 'C':
+            pedidos_A = [p[1:] for p in pedidos if p[0] == 'A']
+            pedidos_B = [p[1:] for p in pedidos if p[0] == 'B']
+            
+            # Possibilidade 1: Traversal C -> Tour B (HCP) -> Tour A (HPP to I)
+            seq1 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor C", "HPP"),
+                ([('F', 37, 1)] + pedidos_B, "Picking Zona B (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_A + [('I', 0, 1)], "Picking Zona A (retornando I)", "HPP")
+            ]
+            
+            # Possibilidade 2: Traversal C -> Tour A (HCP) -> Tour B (HPP to I)
+            seq2 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor C", "HPP"),
+                ([('F', 37, 1)] + pedidos_A, "Picking Zona A (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_B + [('I', 0, 1)], "Picking Zona B (retornando I)", "HPP")
+            ]
+            
+            t1, p1, path1 = avaliar_rota(seq1, {"Trajeto Inicial Corredor C": "C", "Picking Zona B (Ciclo em F)": "B", "Picking Zona A (retornando I)": "A"})
+            t2, p2, path2 = avaliar_rota(seq2, {"Trajeto Inicial Corredor C": "C", "Picking Zona A (Ciclo em F)": "A", "Picking Zona B (retornando I)": "B"})
+            
+            if t1 < t2:
+                exibir_vencedor(p1); return path1
+            else:
+                exibir_vencedor(p2); return path2
 
     elif all_corr == ['A', 'C']:
         if corr_inicial == 'A':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona A -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona C -> I")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('F', 37, 1)], "Zona A -> F", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 1)], "Zona C -> I", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Zona A -> F": "A", "Zona C -> I": "C"})
+            exibir_vencedor(p); return path
 
         elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona C -> F")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('F', 37, 1)], "Zona C -> F", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 1)], "Zona A -> I", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Zona C -> F": "C", "Zona A -> I": "A"})
+            exibir_vencedor(p); return path
+        
+        elif corr_inicial == 'B':
+            seq1 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor B", "HPP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'A'], "Picking Zona A (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'C'] + [('I', 0, 1)], "Picking Zona C (retornando I)", "HPP")
+            ]
+            seq2 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor B", "HPP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'C'], "Picking Zona C (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'A'] + [('I', 0, 1)], "Picking Zona A (retornando I)", "HPP")
+            ]
+            t1, p1, path1 = avaliar_rota(seq1, {"Trajeto Inicial Corredor B": "B", "Picking Zona A (Ciclo em F)": "A", "Picking Zona C (retornando I)": "C"})
+            t2, p2, path2 = avaliar_rota(seq2, {"Trajeto Inicial Corredor B": "B", "Picking Zona C (Ciclo em F)": "C", "Picking Zona A (retornando I)": "A"})
+            if t1 < t2:
+                exibir_vencedor(p1); return path1
+            else:
+                exibir_vencedor(p2); return path2
 
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona A -> I")
+
 
     elif all_corr == ['B', 'C']:
         if corr_inicial == 'B':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona B -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona C -> I")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('F', 37, 1)], "Zona B -> F", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 1)], "Zona C -> I", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Zona B -> F": "B", "Zona C -> I": "C"})
+            exibir_vencedor(p); return path
 
         elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('F', 0, 37)]
-            G1 = G.subgraph(X_sample)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona C -> F")
-
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 0)]
-            G1 = G.subgraph(X_sample1)
-            G1_matrix, id_to_elem, n = conversao(G1, node_list=X_sample1)
-            res_hpp = HPP(G1_matrix, n)
-            exibir_solucao(res_hpp[0], id_to_elem, n, res_hpp[1], titulo="Zona B -> I")
+            seq = [
+                ([('I', 0, 1)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('F', 37, 1)], "Zona C -> F", "HPP"),
+                ([('F', 37, 1)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 1)], "Zona B -> I", "HPP")
+            ]
+            t, p, path = avaliar_rota(seq, {"Zona C -> F": "C", "Zona B -> I": "B"})
+            exibir_vencedor(p); return path
+        
+        elif corr_inicial == 'A':
+            seq1 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor A", "HPP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'B'], "Picking Zona B (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'C'] + [('I', 0, 1)], "Picking Zona C (retornando I)", "HPP")
+            ]
+            seq2 = [
+                ([('I', 0, 1), ('F', 37, 1)], "Trajeto Inicial Corredor A", "HPP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'C'], "Picking Zona C (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + [p[1:] for p in pedidos if p[0] == 'B'] + [('I', 0, 1)], "Picking Zona B (retornando I)", "HPP")
+            ]
+            t1, p1, path1 = avaliar_rota(seq1, {"Trajeto Inicial Corredor A": "A", "Picking Zona B (Ciclo em F)": "B", "Picking Zona C (retornando I)": "C"})
+            t2, p2, path2 = avaliar_rota(seq2, {"Trajeto Inicial Corredor A": "A", "Picking Zona C (Ciclo em F)": "C", "Picking Zona B (retornando I)": "B"})
+            if t1 < t2:
+                exibir_vencedor(p1); return path1
+            else:
+                exibir_vencedor(p2); return path2
 
     elif all_corr == ['A', 'B', 'C']:
         if corr_inicial == 'A':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'A'] + [('F', 0, 37)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample), node_list=X_sample)
-            res1 = HPP(G1_matrix, n)
-            exibir_solucao(res1[0], id_to_elem, n, res1[1], titulo="A -> F")
+            pedidos_A = [p[1:] for p in pedidos if p[0] == 'A']
+            pedidos_B = [p[1:] for p in pedidos if p[0] == 'B']
+            pedidos_C = [p[1:] for p in pedidos if p[0] == 'C']
 
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] 
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample1), node_list=X_sample1)
-            res2 = HCP(G1_matrix, n)
-            exibir_solucao(res2[0], id_to_elem, n, res2[1], titulo="Picking B (Ciclo em F)", tipo="HCP")
-
-            X_sample2 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample2), node_list=X_sample2)
-            res3 = HPP(G1_matrix, n)
-            exibir_solucao(res3[0], id_to_elem, n, res3[1], titulo="C -> I")
+            # Opção 1: A -> B (HCP) -> C (HPP to I)
+            seq1 = [
+                ([('I', 0, 1)] + pedidos_A + [('F', 37, 1)], "Picking Zona A (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_B, "Picking Zona B (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_C + [('I', 0, 1)], "Picking Zona C (retornando I)", "HPP")
+            ]
+            # Opção 2: A -> C (HCP) -> B (HPP to I)
+            seq2 = [
+                ([('I', 0, 1)] + pedidos_A + [('F', 37, 1)], "Picking Zona A (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_C, "Picking Zona C (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_B + [('I', 0, 1)], "Picking Zona B (retornando I)", "HPP")
+            ]
+            t1, p1, r1 = avaliar_rota(seq1, {"Picking Zona A (seguindo para F)": "A", "Picking Zona B (Ciclo em F)": "B", "Picking Zona C (retornando I)": "C"})
+            t2, p2, r2 = avaliar_rota(seq2, {"Picking Zona A (seguindo para F)": "A", "Picking Zona C (Ciclo em F)": "C", "Picking Zona B (retornando I)": "B"})
+            if t1 < t2:
+                exibir_vencedor(p1); return r1
+            else:
+                exibir_vencedor(p2); return r2
 
         elif corr_inicial == 'B':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('F', 0, 37)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample), node_list=X_sample)
-            res1 = HPP(G1_matrix, n)
-            exibir_solucao(res1[0], id_to_elem, n, res1[1], titulo="B -> F")
+            pedidos_A = [p[1:] for p in pedidos if p[0] == 'A']
+            pedidos_B = [p[1:] for p in pedidos if p[0] == 'B']
+            pedidos_C = [p[1:] for p in pedidos if p[0] == 'C']
 
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A']
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample1), node_list=X_sample1)
-            res2 = HCP(G1_matrix, n)
-            exibir_solucao(res2[0], id_to_elem, n, res2[1], titulo="Picking A (Ciclo em F)", tipo="HCP")
-
-            X_sample2 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('I', 0, 0)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample2), node_list=X_sample2)
-            res3 = HPP(G1_matrix, n)
-            exibir_solucao(res3[0], id_to_elem, n, res3[1], titulo="C -> I")
+            # Opção 1: B -> A (HCP) -> C (HPP to I)
+            seq1 = [
+                ([('I', 0, 1)] + pedidos_B + [('F', 37, 1)], "Picking Zona B (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_A, "Picking Zona A (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_C + [('I', 0, 1)], "Picking Zona C (retornando I)", "HPP")
+            ]
+            # Opção 2: B -> C (HCP) -> A (HPP to I)
+            seq2 = [
+                ([('I', 0, 1)] + pedidos_B + [('F', 37, 1)], "Picking Zona B (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_C, "Picking Zona C (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_A + [('I', 0, 1)], "Picking Zona A (retornando I)", "HPP")
+            ]
+            t1, p1, r1 = avaliar_rota(seq1, {"Picking Zona B (seguindo para F)": "B", "Picking Zona A (Ciclo em F)": "A", "Picking Zona C (retornando I)": "C"})
+            t2, p2, r2 = avaliar_rota(seq2, {"Picking Zona B (seguindo para F)": "B", "Picking Zona C (Ciclo em F)": "C", "Picking Zona A (retornando I)": "A"})
+            if t1 < t2:
+                exibir_vencedor(p1); return r1
+            else:
+                exibir_vencedor(p2); return r2
 
         elif corr_inicial == 'C':
-            X_sample = [('I', 0, 0)] + [item[1:] for item in pedidos if item[0] == 'C'] + [('F', 0, 37)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample), node_list=X_sample)
-            res1 = HPP(G1_matrix, n)
-            exibir_solucao(res1[0], id_to_elem, n, res1[1], titulo="C -> F")
+            pedidos_A = [p[1:] for p in pedidos if p[0] == 'A']
+            pedidos_B = [p[1:] for p in pedidos if p[0] == 'B']
+            pedidos_C = [p[1:] for p in pedidos if p[0] == 'C']
 
-            X_sample1 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'A']
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample1), node_list=X_sample1)
-            res2 = HCP(G1_matrix, n)
-            exibir_solucao(res2[0], id_to_elem, n, res2[1], titulo="Picking A (Ciclo em F)", tipo="HCP")
-
-            X_sample2 = [('F', 0, 37)] + [item[1:] for item in pedidos if item[0] == 'B'] + [('I', 0, 0)]
-            G1_matrix, id_to_elem, n = conversao(G.subgraph(X_sample2), node_list=X_sample2)
-            res3 = HPP(G1_matrix, n)
-            exibir_solucao(res3[0], id_to_elem, n, res3[1], titulo="B -> I")
+            # Opção 1: C -> A (HCP) -> B (HPP to I)
+            seq1 = [
+                ([('I', 0, 1)] + pedidos_C + [('F', 37, 1)], "Picking Zona C (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_A, "Picking Zona A (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_B + [('I', 0, 1)], "Picking Zona B (retornando I)", "HPP")
+            ]
+            # Opção 2: C -> B (HCP) -> A (HPP to I)
+            seq2 = [
+                ([('I', 0, 1)] + pedidos_C + [('F', 37, 1)], "Picking Zona C (seguindo para F)", "HPP"),
+                ([('F', 37, 1)] + pedidos_B, "Picking Zona B (Ciclo em F)", "HCP"),
+                ([('F', 37, 1)] + pedidos_A + [('I', 0, 1)], "Picking Zona A (retornando I)", "HPP")
+            ]
+            t1, p1, r1 = avaliar_rota(seq1, {"Picking Zona C (seguindo para F)": "C", "Picking Zona A (Ciclo em F)": "A", "Picking Zona B (retornando I)": "B"})
+            t2, p2, r2 = avaliar_rota(seq2, {"Picking Zona C (seguindo para F)": "C", "Picking Zona B (Ciclo em F)": "B", "Picking Zona A (retornando I)": "A"})
+            if t1 < t2:
+                exibir_vencedor(p1); return r1
+            else:
+                exibir_vencedor(p2); return r2
+    
+    return []
 
         
 

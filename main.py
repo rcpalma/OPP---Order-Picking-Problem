@@ -1,14 +1,18 @@
 from data import *
 from solve import *
+from plot import *
 
-G, X_completo = dados('a', 'a')
+G, X_completo = dados()
 
+X_sample = pedidos(25)
 
+#X_sample = [item for item in X_sample if item[0] == 'C' or item[0] == 'B']
 
-# Definindo Início (F) na primeira posição e Fim (I) na última
-X_sample = pedidos(40)
+Corr_inicial = 'A'
 
-X_sample = [item for item in X_sample if item[0] == 'B']
+# Obter a rota consolidada
+rota = all_tour(G, X_sample, Corr_inicial, conversao)
 
-all_tour(G, X_sample, 'A', conversao)
+# Plotar a solução
+plot_picking_route(rota)
 

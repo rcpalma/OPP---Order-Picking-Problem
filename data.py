@@ -1,19 +1,17 @@
-import numpy as np
 import pandas as pd
-import osmnx as ox
 import networkx as nx
 import random
 
 
 
-def dados(Ia,Orders):
+def dados():
 
 
     lados = ['L', 'R']
-    colunas = range(1, 37) # 1 a 32
+    colunas = range(1, 37) # 1 a 36
     niveis = range(1, 10)  # 1 a 9
-    v_inicial = [('F',0,37)] 
-    v_final = [('I',0,0)]
+    v_inicial = [('I',0,1)] 
+    v_final = [('F',37,1)]
 
     vertices_nomes = [(l, c, n) for l in lados for c in colunas for n in niveis]
     vertices_nomes_f = v_inicial + vertices_nomes + v_final
@@ -29,16 +27,25 @@ def dados(Ia,Orders):
         diff_col = abs(b2 - a2)
         diff_niv = abs(b3 - a3)
         
-        if a1 != b1:
-            # Se os lados são diferentes (ex: um está em L e outro em R)
-            if a1 in ['I','F'] and a2 in ['I','F']:
-                dist = ((1.35 * diff_col)**2)**(1/2) + (1.15 * diff_niv)
+
+        if a1 in ['I','F'] or b1 in ['I','F']:
+            if a1 == 'I' and b1 == 'F':
+                dist = diff_col * 1.35
+            elif a1 == 'F' and b1 == 'I':
+                dist = diff_col * 1.35
             else:
-                dist = ((1.6)**2 + (1.35 * diff_col)**2)**(1/2) + (1.15 * diff_niv)
+                dist = ((0.8)**2 + (1.35 * diff_col)**2)**(1/2) + (1.15 * diff_niv)
         else:
-            # Se estão no mesmo lado
-            dist = (1.35 * diff_col) + (1.15 * diff_niv)
+            if a1 != a2:
+                dist = ((1.6)**2 + (1.35 * diff_col)**2)**(1/2) + (1.15 * diff_niv)
+            else:
+                dist = (1.35 * diff_col) + (1.15 * diff_niv)
         
+        if a1 == 'I' and b1 == 'F':
+            dist = diff_col * 1.35
+        elif a1 == 'F' and b1 == 'I':
+            dist = diff_col * 1.35
+
         # Atribuir o peso ao grafo
         G.edges[u, v]['weight'] = dist
         G.edges[u, v]['length'] = dist
@@ -88,4 +95,7 @@ def pedidos(n_pedidos):
                     for n in niveis]
     
     return random.sample(pedidos, n_pedidos)
+
+
+
     
