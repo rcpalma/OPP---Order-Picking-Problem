@@ -1,4 +1,4 @@
-# Order Picking Problem do paper: https://www.researchgate.net/publication/299405243_Optimizing_the_order_picking_of_a_scholar_and_office_supplies_warehouse
+# Order Picking Problem do artigo: https://www.researchgate.net/publication/299405243_Optimizing_the_order_picking_of_a_scholar_and_office_supplies_warehouse
 
 Nesse projeto pessoal, utilizei Python e a biblioteca gurobipy para modelar e resolver o problema de Order Picking (OPP) descrito no artigo no link acima de ISLER, C. A.; RIGHETTO, G. M.; MORABITO, R. Criei também uma visualização para melhor interpretabilidade da solução.
 Para mais detalhes veja o artigo.
